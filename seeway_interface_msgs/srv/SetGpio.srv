@@ -1,0 +1,6 @@
+uint8 bank
+uint32 pin_mask
+uint32 pin_states
+---
+bool success
+string message

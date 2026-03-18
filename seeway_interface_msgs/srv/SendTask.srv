@@ -1,0 +1,14 @@
+uint8 task_id
+uint32 arg
+string name
+
+uint8 TASK_ARM_HOME = 1
+uint8 TASK_ESTOP = 2
+uint8 TASK_SHUTDOWN_ALL = 3
+uint8 TASK_ENABLE_VALVE = 16
+uint8 TASK_DISABLE_VALVE = 17
+uint8 TASK_CUSTOM = 240
+---
+bool success
+uint8 result_code
+string message

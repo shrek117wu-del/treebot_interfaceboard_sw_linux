@@ -1,0 +1,14 @@
+uint8 command
+uint16 delay_ms
+
+uint8 PWR_NX_ON = 1
+uint8 PWR_NX_OFF = 2
+uint8 PWR_NX_RESET = 3
+uint8 PWR_ARM_ON = 17
+uint8 PWR_ARM_OFF = 18
+uint8 PWR_CHASSIS_ON = 33
+uint8 PWR_CHASSIS_OFF = 34
+uint8 PWR_ALL_OFF = 255
+---
+bool success
+string message

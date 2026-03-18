@@ -1,0 +1,10 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    # Example: you would configure standard controllers here,e.g.:
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    seeway_gpio_controller:
+      type: forward_command_controller/ForwardCommandController

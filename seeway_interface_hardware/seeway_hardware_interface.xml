@@ -1,0 +1,9 @@
+<library path="seeway_hardware_interface">
+  <class name="seeway_interface_hardware/SeewayHardwareInterface"
+         type="seeway_interface_hardware::SeewayHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Seeway Interface Board T113i Hardware Interface (ros2_control)
+    </description>
+  </class>
+</library>

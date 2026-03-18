@@ -1,0 +1,7 @@
+uint8 channel
+uint16 frequency_hz
+uint16 duty_per_mil
+uint8 enable
+---
+bool success
+string message
