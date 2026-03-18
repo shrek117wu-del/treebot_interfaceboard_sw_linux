@@ -15,7 +15,10 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>seeway_interface_msgs</depend>
 
+  <exec_depend>controller_manager</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
+    <hardware_interface plugin="${prefix}/share/seeway_interface_hardware/seeway_hardware_interface.xml"/>
   </export>
 </package>
