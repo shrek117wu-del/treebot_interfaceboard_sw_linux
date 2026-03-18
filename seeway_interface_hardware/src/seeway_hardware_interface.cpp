@@ -51,15 +51,15 @@ std::vector<hardware_interface::StateInterface> SeewayHardwareInterface::export_
     // Export Sensor states (ADC 0-7, Temp, Hum)
     for (size_t i = 0; i < 8; ++i) {
         state_interfaces.emplace_back(hardware_interface::StateInterface(
-            info_.name, "adc_" + std::to_string(i), &hw_sensor_states_[i]));
+            info_.name, "analog_in/" + std::to_string(i), &hw_sensor_states_[i]));
     }
-    state_interfaces.emplace_back(hardware_interface::StateInterface(info_.name, "temperature", &hw_sensor_states_[8]));
-    state_interfaces.emplace_back(hardware_interface::StateInterface(info_.name, "humidity", &hw_sensor_states_[9]));
+    state_interfaces.emplace_back(hardware_interface::StateInterface(info_.name, "environment/temperature_c", &hw_sensor_states_[8]));
+    state_interfaces.emplace_back(hardware_interface::StateInterface(info_.name, "environment/humidity_pct", &hw_sensor_states_[9]));
 
     // Export GPIO input states (first bank 32 pins)
     for (size_t i = 0; i < 32; ++i) {
         state_interfaces.emplace_back(hardware_interface::StateInterface(
-            info_.name, "gpio_in_" + std::to_string(i), &hw_gpio_inputs_[i]));
+            info_.name, "digital_in/" + std::to_string(i), &hw_gpio_inputs_[i]));
     }
 
     return state_interfaces;
@@ -71,13 +71,13 @@ std::vector<hardware_interface::CommandInterface> SeewayHardwareInterface::expor
     // Export GPIO commands (first bank 32 pins)
     for (size_t i = 0; i < 32; ++i) {
         command_interfaces.emplace_back(hardware_interface::CommandInterface(
-            info_.name, "gpio_out_" + std::to_string(i), &hw_gpio_cmds_[i]));
+            info_.name, "digital_out/" + std::to_string(i), &hw_gpio_cmds_[i]));
     }
 
     // Export PWM commands
     for (size_t i = 0; i < 4; ++i) {
         command_interfaces.emplace_back(hardware_interface::CommandInterface(
-            info_.name, "pwm_out_" + std::to_string(i), &hw_pwm_cmds_[i]));
+            info_.name, "pwm_out/" + std::to_string(i), &hw_pwm_cmds_[i]));
     }
 
     return command_interfaces;
