@@ -1,4 +1,4 @@
-<library path="seeway_hardware_interface">
+<library path="seeway_interface_hardware">
   <class name="seeway_interface_hardware/SeewayHardwareInterface"
          type="seeway_interface_hardware::SeewayHardwareInterface"
          base_class_type="hardware_interface::SystemInterface">

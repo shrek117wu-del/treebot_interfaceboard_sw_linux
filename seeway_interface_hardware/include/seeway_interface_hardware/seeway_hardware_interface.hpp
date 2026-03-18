@@ -1,13 +1,17 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
+#include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 // ROS2 Messages & Services
@@ -34,6 +38,10 @@ public:
 private:
     rclcpp::Node::SharedPtr node_;
 
+    // Dedicated executor thread (spun in on_activate, stopped in on_deactivate)
+    rclcpp::executors::SingleThreadedExecutor::UniquePtr executor_;
+    std::thread executor_thread_;
+
     // Subscribers
     rclcpp::Subscription<seeway_interface_msgs::msg::SensorData>::SharedPtr sensor_sub_;
     rclcpp::Subscription<seeway_interface_msgs::msg::GpioStatus>::SharedPtr gpio_sub_;
@@ -45,15 +53,24 @@ private:
     void on_sensor_data(const seeway_interface_msgs::msg::SensorData::SharedPtr msg);
     void on_gpio_status(const seeway_interface_msgs::msg::GpioStatus::SharedPtr msg);
 
-    // State Variables (read from driver)
+    // State Variables (read from driver, updated by executor thread via callbacks)
     std::vector<double> hw_sensor_states_; // ADC channels + temp + humidity
-    std::vector<double> hw_gpio_inputs_;   // e.g. 4 banks * 32 bits = 128 elements
+    std::vector<double> hw_gpio_inputs_;   // 32 digital input pins
 
     // Command Variables (written by controllers, sent to driver)
-    std::vector<double> hw_gpio_cmds_;     // e.g. digital outputs
-    std::vector<double> hw_pwm_cmds_;      // e.g. PWM channels
+    std::vector<double> hw_gpio_cmds_;      // digital output commands
+    std::vector<double> hw_pwm_cmds_;       // PWM channel commands
 
-    // Cache latest status from topics
+    // Last-sent caches for edge-triggered service calls
+    std::vector<double> hw_gpio_cmds_prev_;
+    std::vector<double> hw_pwm_cmds_prev_;
+
+    // One-shot service-unavailable warnings (reset when service becomes available).
+    // Written only from write() on the control loop thread; atomic for safety.
+    std::atomic<bool> gpio_service_warned_{false};
+    std::atomic<bool> pwm_service_warned_{false};
+
+    // Cache latest status from topics (protected by data_mutex_)
     seeway_interface_msgs::msg::SensorData::SharedPtr latest_sensor_;
     seeway_interface_msgs::msg::GpioStatus::SharedPtr latest_gpio_;
     std::mutex data_mutex_;
