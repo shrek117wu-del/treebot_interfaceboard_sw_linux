@@ -11,3 +11,78 @@ Jetson ROS2 seeway_interface_driver： 实现了一个基于 TCP 的 Lifecycle Node，它作
 Jetson ROS2 seeway_interface_hardware： 开发了标准的 ros2_control 硬件接口插件 (SystemInterface)，这使得后续你只需要在 URDF 里注册这个插件，就能无缝在 ROS2 控制器框架里直接读取 T113i 的 8路模拟量和诸多开关量，同时能映射下发运动库命令到 T113i 的 PWM 和 Digital Outs。
 附上了配套的 CMake 脚本、package.xml、以及启动 Launch / yaml 参数配置。
 我已经在 walkthrough.md 中编写了包含架构说明和交叉编译/启动指令的说明文档指南。代码已全数生成在您的工程目录中。
+
+---
+
+## ROS 2 Humble Build Guide
+
+### Prerequisites
+
+Install `ros2_control` packages on Ubuntu 22.04 (Humble):
+
+```bash
+sudo apt update
+sudo apt install -y ros-humble-ros2-control ros-humble-ros2-controllers
+```
+
+### Build Steps
+
+```bash
+# 1. Source ROS 2 Humble environment (required before every build)
+source /opt/ros/humble/setup.bash
+
+# 2. (Optional) source your existing workspace overlay if applicable
+# source ~/ros2_ws/install/setup.bash
+
+# 3. Build the packages
+cd ~/ros2_ws
+colcon build --packages-select seeway_interface_msgs seeway_interface_driver seeway_interface_hardware
+```
+
+### Troubleshooting
+
+**Error:** `Could not find a package configuration file provided by "hardware_interface"`
+
+This means either:
+
+1. `ros-humble-ros2-control` is not installed -- run:
+   ```bash
+   sudo apt install -y ros-humble-ros2-control ros-humble-ros2-controllers
+   ```
+2. The ROS 2 environment was not sourced in the current terminal -- run:
+   ```bash
+   source /opt/ros/humble/setup.bash
+   ```
+   then retry `colcon build`.
+
+Verify the installation:
+
+```bash
+ros2 pkg prefix hardware_interface
+# Expected output: /opt/ros/humble
+```
+
+### ros2_control Plugin Loading
+
+The hardware plugin is registered as:
+
+- **Plugin class**: `seeway_interface_hardware/SeewayHardwareInterface`
+- **Base class**: `hardware_interface::SystemInterface`
+- **Library**: `libseeway_interface_hardware.so`
+
+Reference it in your `ros2_control` YAML:
+
+```yaml
+ros2_control:
+  - name: seeway_hardware
+    type: seeway_interface_hardware/SeewayHardwareInterface
+    command_interfaces:
+      - gpio_out_0
+      - gpio_out_1
+      - pwm_out_0
+    state_interfaces:
+      - adc_0
+      - adc_1
+      - gpio_in_0
+      - battery_voltage
+```
