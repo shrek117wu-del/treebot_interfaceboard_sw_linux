@@ -2,7 +2,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
-#include "seeway_interface_driver/comm_handler.hpp"
+#include "seeway_interface_driver/transport.hpp"
 
 // ROS2 Messages
 #include "seeway_interface_msgs/msg/sensor_data.hpp"
@@ -34,8 +34,8 @@ protected:
     CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override;
 
 private:
-    std::unique_ptr<TcpServer> tcp_server_;
-    uint16_t tcp_port_;
+    // Active transport instance (created in on_configure, destroyed in on_cleanup)
+    std::unique_ptr<ITransport> transport_;
 
     // Publishers
     rclcpp_lifecycle::LifecyclePublisher<seeway_interface_msgs::msg::SensorData>::SharedPtr sensor_pub_;
@@ -50,14 +50,14 @@ private:
     rclcpp::Service<seeway_interface_msgs::srv::PowerControl>::SharedPtr srv_power_;
     rclcpp::Service<seeway_interface_msgs::srv::SendTask>::SharedPtr srv_task_;
 
-    // Callbacks from TCP Server
+    // Callbacks for inbound frames from T113i
     void handle_sensor_data(const uint8_t* pay, uint16_t len);
     void handle_gpio_status(const uint8_t* pay, uint16_t len);
     void handle_battery_status(const uint8_t* pay, uint16_t len);
     void handle_system_status(const uint8_t* pay, uint16_t len);
     void handle_input_event(const uint8_t* pay, uint16_t len);
 
-    // Callbacks from ROS2 Services
+    // ROS2 service callbacks (outbound commands to T113i)
     void on_set_gpio(const std::shared_ptr<seeway_interface_msgs::srv::SetGpio::Request> req,
                      std::shared_ptr<seeway_interface_msgs::srv::SetGpio::Response> res);
     void on_set_pwm(const std::shared_ptr<seeway_interface_msgs::srv::SetPwm::Request> req,
@@ -73,4 +73,4 @@ private:
     bool task_resp_ready_ = false;
 };
 
-} // namespace seeway_interface_driver
+}  // namespace seeway_interface_driver

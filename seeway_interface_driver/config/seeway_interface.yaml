@@ -1,4 +1,19 @@
-seeway_driver_node:
+seeway_interface_driver:
   ros__parameters:
-    tcp_port: 9000
     use_sim_time: false
+
+    # Transport selector: tcp | serial
+    transport: tcp
+
+    # TCP transport parameters
+    tcp:
+      mode: server          # server: Jetson listens / client: Jetson connects
+      port: 9000
+      host: 192.168.1.50    # T113i address (used in client mode)
+      bind_address: 0.0.0.0 # Listen address (used in server mode)
+      reconnect_ms: 1000    # Reconnect interval for client mode (ms)
+
+    # Serial / USB-CDC transport parameters
+    serial:
+      device: /dev/ttyACM0
+      baudrate: 115200
