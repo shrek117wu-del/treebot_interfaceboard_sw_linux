@@ -15,6 +15,9 @@ include_directories(include)
 
 add_library(seeway_driver_node SHARED
   src/comm_handler.cpp
+  src/tcp_server_transport.cpp
+  src/tcp_client_transport.cpp
+  src/serial_transport.cpp
   src/driver_node.cpp
 )
 target_include_directories(seeway_driver_node PRIVATE include)
