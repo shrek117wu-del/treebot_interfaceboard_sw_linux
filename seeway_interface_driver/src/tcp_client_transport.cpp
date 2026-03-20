@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -44,6 +45,7 @@ public:
                 sock_fd_ = -1;
             }
         }
+        cv_.notify_all();
         if (connect_thread_.joinable()) connect_thread_.join();
         if (rx_thread_.joinable()) rx_thread_.join();
     }
@@ -75,6 +77,8 @@ private:
     std::thread       connect_thread_;
     std::thread       rx_thread_;
     std::mutex        tx_mutex_;
+    std::mutex        cv_mutex_;
+    std::condition_variable cv_;
 
     FrameCodec                     codec_;
     std::array<FrameCallback, 256> handlers_{};
@@ -124,18 +128,10 @@ private:
 
             if (rx_thread_.joinable()) rx_thread_.join();
             rx_thread_ = std::thread(&TcpClientTransport::rx_loop, this);
-            // Block here until the peer disconnects.  When rx_loop exits the
-            // loop will either retry (if running_) or exit (if stop() was
-            // called, which closes sock_fd_ and wakes recv()).
-            rx_thread_.join();
-
-            // rx_loop returned – peer disconnected; clear fd and retry
+            // Wait until rx_loop signals disconnect (sock_fd_ < 0) or stop().
             {
-                std::lock_guard<std::mutex> lk(tx_mutex_);
-                if (sock_fd_ >= 0) {
-                    close(sock_fd_);
-                    sock_fd_ = -1;
-                }
+                std::unique_lock<std::mutex> lk(cv_mutex_);
+                cv_.wait(lk, [this] { return !running_ || sock_fd_ < 0; });
             }
 
             if (!running_) break;
@@ -161,12 +157,15 @@ private:
                             if (h) h(id, seq, pay, len);
                         });
         }
-        // Signal connect_loop that we are done (it joins us)
-        std::lock_guard<std::mutex> lk(tx_mutex_);
-        if (sock_fd_ >= 0) {
-            close(sock_fd_);
-            sock_fd_ = -1;
+        // Close socket and signal connect_loop to retry or exit.
+        {
+            std::lock_guard<std::mutex> lk(tx_mutex_);
+            if (sock_fd_ >= 0) {
+                close(sock_fd_);
+                sock_fd_ = -1;
+            }
         }
+        cv_.notify_all();
     }
 };
 
