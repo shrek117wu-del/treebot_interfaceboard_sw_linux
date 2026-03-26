@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
@@ -9,6 +10,7 @@
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/executors/single_threaded_executor.hpp"
 
 // ROS2 Messages & Services
 #include "seeway_interface_msgs/msg/sensor_data.hpp"
@@ -34,6 +36,11 @@ public:
 private:
     rclcpp::Node::SharedPtr node_;
 
+    // Executor + spin thread for the internal node (started in on_activate,
+    // stopped in on_deactivate).  read() must NOT call spin_some().
+    rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
+    std::thread spin_thread_;
+
     // Subscribers
     rclcpp::Subscription<seeway_interface_msgs::msg::SensorData>::SharedPtr sensor_sub_;
     rclcpp::Subscription<seeway_interface_msgs::msg::GpioStatus>::SharedPtr gpio_sub_;
@@ -50,10 +57,10 @@ private:
     std::vector<double> hw_gpio_inputs_;   // e.g. 4 banks * 32 bits = 128 elements
 
     // Command Variables (written by controllers, sent to driver)
-    std::vector<double> hw_gpio_cmds_;     // e.g. digital outputs
-    std::vector<double> hw_pwm_cmds_;      // e.g. PWM channels
+    std::vector<double> hw_gpio_cmds_;     // digital outputs
+    std::vector<double> hw_pwm_cmds_;      // PWM channels
 
-    // Cache latest status from topics
+    // Cache latest status from topics (protected by data_mutex_)
     seeway_interface_msgs::msg::SensorData::SharedPtr latest_sensor_;
     seeway_interface_msgs::msg::GpioStatus::SharedPtr latest_gpio_;
     std::mutex data_mutex_;
