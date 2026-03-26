@@ -16,6 +16,10 @@ ConnectionMonitor::ConnectionMonitor(int heartbeat_timeout_ms,
     , max_reconnect_attempts_(max_reconnect_attempts)
 {}
 
+ConnectionMonitor::State ConnectionMonitor::state() const {
+    return state_.load();
+}
+
 void ConnectionMonitor::on_heartbeat_received() {
     auto now_ms = duration_cast<milliseconds>(
         steady_clock::now().time_since_epoch()).count();

@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/perf_memory.dir/link.d CMakeFiles/perf_memory.dir/perf/perf_memory.cpp.o -o perf_memory  libdaemon_testlib.a -lrt -lm

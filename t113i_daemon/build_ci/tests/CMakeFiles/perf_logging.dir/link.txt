@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/perf_logging.dir/link.d CMakeFiles/perf_logging.dir/perf/perf_logging.cpp.o -o perf_logging  libdaemon_testlib.a -lrt -lm

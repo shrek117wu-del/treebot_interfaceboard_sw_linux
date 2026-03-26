@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/perf_task_execution.dir/link.d CMakeFiles/perf_task_execution.dir/perf/perf_task_execution.cpp.o -o perf_task_execution  libdaemon_testlib.a -lrt -lm

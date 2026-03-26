@@ -1,0 +1,135 @@
+name: T113i Daemon – Cross-Compile (ARM)
+
+on:
+  push:
+    branches: [ "**" ]
+    paths:
+      - 't113i_daemon/**'
+      - '.github/workflows/cross-compile.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - 't113i_daemon/**'
+
+jobs:
+  cross-compile-armhf:
+    name: Cross-compile armhf (ARMv7-A hard-float)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ARM cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            binutils-arm-linux-gnueabihf \
+            cmake ninja-build \
+            file
+
+      - name: Configure for ARM
+        working-directory: t113i_daemon
+        run: |
+          mkdir -p build_armhf
+          cd build_armhf
+          cmake .. \
+            -GNinja \
+            -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-linux-gnueabihf.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: t113i_daemon/build_armhf
+        run: ninja -j$(nproc)
+
+      - name: Verify ARM binary
+        working-directory: t113i_daemon
+        run: |
+          chmod +x scripts/cross-compile/verify_arm_binary.sh
+          ./scripts/cross-compile/verify_arm_binary.sh \
+            build_armhf/seeway_interface_daemon
+
+      - name: Display binary info
+        working-directory: t113i_daemon/build_armhf
+        run: |
+          echo "--- Binary size ---"
+          ls -lh seeway_interface_daemon
+          echo ""
+          echo "--- ELF header ---"
+          arm-linux-gnueabihf-readelf -h seeway_interface_daemon | head -30
+          echo ""
+          echo "--- Dynamic deps ---"
+          arm-linux-gnueabihf-readelf -d seeway_interface_daemon | grep NEEDED || true
+          echo ""
+          echo "--- Symbols (first 20) ---"
+          arm-linux-gnueabihf-nm seeway_interface_daemon 2>/dev/null | head -20 || true
+
+      - name: Upload ARM binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: seeway-daemon-armhf
+          path: t113i_daemon/build_armhf/seeway_interface_daemon
+          if-no-files-found: error
+
+  cross-compile-aarch64:
+    name: Cross-compile aarch64 (Jetson/ARM64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install AArch64 cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            cmake ninja-build \
+            file
+
+      - name: Configure for AArch64
+        working-directory: t113i_daemon
+        run: |
+          mkdir -p build_aarch64
+          cd build_aarch64
+          cmake .. \
+            -GNinja \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DCMAKE_CXX_FLAGS="-O2"
+
+      - name: Build
+        working-directory: t113i_daemon/build_aarch64
+        run: ninja -j$(nproc)
+
+      - name: Verify AArch64 binary
+        working-directory: t113i_daemon/build_aarch64
+        run: |
+          echo "--- file output ---"
+          file seeway_interface_daemon
+          echo ""
+          ARCH=$(aarch64-linux-gnu-readelf -h seeway_interface_daemon | grep Machine)
+          echo "Machine: ${ARCH}"
+          if echo "${ARCH}" | grep -qi "aarch64\|AArch64"; then
+              echo "PASS: AArch64 binary verified"
+          else
+              echo "FAIL: Expected AArch64"
+              exit 1
+          fi
+
+      - name: Upload AArch64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: seeway-daemon-aarch64
+          path: t113i_daemon/build_aarch64/seeway_interface_daemon
+          if-no-files-found: error

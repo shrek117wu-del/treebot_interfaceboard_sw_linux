@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/treebot_interfaceboard_sw_linux/treebot_interfaceboard_sw_linux/t113i_daemon/build_ci/tests/test_connection_monitor[1]_tests.cmake")
+  include("/home/runner/work/treebot_interfaceboard_sw_linux/treebot_interfaceboard_sw_linux/t113i_daemon/build_ci/tests/test_connection_monitor[1]_tests.cmake")
+else()
+  add_test(test_connection_monitor_NOT_BUILT test_connection_monitor_NOT_BUILT)
+endif()

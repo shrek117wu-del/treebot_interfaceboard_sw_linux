@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/integration_test_protocol_compliance.dir/link.d CMakeFiles/integration_test_protocol_compliance.dir/integration/integration_test_protocol_compliance.cpp.o -o integration_test_protocol_compliance  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a
