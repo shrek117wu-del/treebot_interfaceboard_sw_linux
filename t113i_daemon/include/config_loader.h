@@ -62,6 +62,11 @@ struct DaemonConfig {
     std::string uart_device{"/dev/ttyS3"};
     int         baud_rate{115200};
 
+    // Reconnect interval when TCP connection is lost (ms)
+    int         reconnect_ms{2000};
+    // Heartbeat timeout: link considered dead if no HB within this window (ms)
+    int         heartbeat_timeout_ms{5000};
+
     // [gpio]
     std::vector<GpioPinConfig> gpio_pins;
 
@@ -70,6 +75,10 @@ struct DaemonConfig {
 
     // [power]
     std::vector<PowerRailConfig> power_rails;
+
+    // [logging]
+    std::string log_file;            // path to log file ("" = stderr only)
+    int         log_level{1};        // 0=DEBUG 1=INFO 2=WARN 3=ERROR
 };
 
 // ---------------------------------------------------------------------------
