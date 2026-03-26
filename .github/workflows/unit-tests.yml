@@ -1,0 +1,125 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, master, "copilot/**"]
+    paths:
+      - "t113i_daemon/**"
+      - "tests/**"
+      - ".github/workflows/unit-tests.yml"
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  unit-tests:
+    name: Unit & Integration Tests (x86_64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            cmake \
+            g++ \
+            libgtest-dev \
+            lcov \
+            valgrind
+
+      - name: Build GoogleTest (if needed)
+        run: |
+          # On Ubuntu 22.04 libgtest-dev provides source; build it
+          if [ ! -f /usr/lib/x86_64-linux-gnu/libgtest.a ] && \
+             [ -d /usr/src/googletest ]; then
+            cd /usr/src/googletest
+            sudo cmake .
+            sudo make -j$(nproc)
+            sudo make install
+          fi
+
+      - name: Configure tests
+        run: |
+          mkdir build_tests
+          cd build_tests
+          cmake ../tests \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_COVERAGE=ON
+
+      - name: Build tests
+        run: |
+          cd build_tests
+          make -j$(nproc)
+
+      - name: Run unit tests
+        run: |
+          cd build_tests
+          ctest --output-on-failure --timeout 60 \
+            --tests-regex "^test_" \
+            -j$(nproc)
+
+      - name: Run integration tests
+        run: |
+          cd build_tests
+          ctest --output-on-failure --timeout 120 \
+            --tests-regex "^integration_test_" \
+            -j2
+
+      - name: Generate coverage report
+        run: |
+          cd build_tests
+          lcov --capture --directory . \
+               --output-file coverage.info \
+               --ignore-errors inconsistent 2>/dev/null || true
+          lcov --remove coverage.info '/usr/*' '*/tests/*' '*/gtest*/*' \
+               --output-file coverage_filtered.info 2>/dev/null || true
+          lcov --summary coverage_filtered.info 2>/dev/null || true
+          genhtml coverage_filtered.info \
+                  --output-directory coverage_html \
+                  --quiet 2>/dev/null || true
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: build_tests/coverage_html/
+          retention-days: 14
+
+  valgrind-check:
+    name: Valgrind Memory Check
+    runs-on: ubuntu-22.04
+    needs: unit-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake g++ libgtest-dev valgrind
+
+      - name: Build tests (debug, no coverage)
+        run: |
+          if [ -d /usr/src/googletest ]; then
+            cd /usr/src/googletest && sudo cmake . && sudo make -j$(nproc) && sudo make install
+          fi
+          mkdir build_valgrind && cd build_valgrind
+          cmake ../tests -DCMAKE_BUILD_TYPE=Debug
+          make -j$(nproc)
+
+      - name: Run tests under Valgrind
+        run: |
+          cd build_valgrind
+          for t in test_logger test_connection_monitor test_module_initializer \
+                   test_protocol test_utils test_config_loader; do
+            if [ -f "./${t}" ]; then
+              echo "Valgrind: ${t}"
+              valgrind --error-exitcode=1 --leak-check=full \
+                       --suppressions=/usr/lib/valgrind/default.supp \
+                       "./${t}" --gtest_brief=1 2>&1 | tail -5
+            fi
+          done
