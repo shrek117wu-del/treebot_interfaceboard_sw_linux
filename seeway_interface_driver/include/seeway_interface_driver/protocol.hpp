@@ -141,9 +141,10 @@ typedef struct {
 } TaskCommandPayload;
 
 typedef struct {
-    TaskId  task_id;
-    uint8_t result;
-    char    message[64];
+    TaskId   task_id;
+    uint16_t acked_seq; // Echoes the frame seq from the original TaskCommandPayload
+    uint8_t  result;
+    char     message[63]; // NUL-terminated; kept struct size unchanged (was 64+1+1, now 63+2+1+1)
 } TaskResponsePayload;
 
 #pragma pack(pop)

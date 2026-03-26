@@ -29,13 +29,17 @@ public:
     // (serial).
     virtual bool is_connected() const = 0;
 
-    // Encode and send one protocol frame.
-    virtual bool send(MsgId id, const uint8_t* payload, uint16_t len) = 0;
+    // Encode and send one protocol frame using the supplied sequence number.
+    // The caller is responsible for allocating a unique seq (e.g. via an
+    // atomic counter in the DriverNode) so that ACK/response frames can be
+    // matched back to the request.
+    virtual bool send(MsgId id, uint16_t seq, const uint8_t* payload,
+                      uint16_t len) = 0;
 
     // Convenience wrapper – serialises any packed payload struct.
     template<typename T>
-    bool send_payload(MsgId id, const T& payload) {
-        return send(id, reinterpret_cast<const uint8_t*>(&payload),
+    bool send_payload(MsgId id, uint16_t seq, const T& payload) {
+        return send(id, seq, reinterpret_cast<const uint8_t*>(&payload),
                     static_cast<uint16_t>(sizeof(T)));
     }
 

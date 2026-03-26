@@ -17,6 +17,12 @@
 #include "seeway_interface_msgs/srv/power_control.hpp"
 #include "seeway_interface_msgs/srv/send_task.hpp"
 
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <unordered_map>
+
 namespace seeway_interface_driver {
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
@@ -67,10 +73,38 @@ private:
     void on_send_task(const std::shared_ptr<seeway_interface_msgs::srv::SendTask::Request> req,
                       std::shared_ptr<seeway_interface_msgs::srv::SendTask::Response> res);
 
-    std::mutex task_resp_mutex_;
-    std::condition_variable task_resp_cv_;
-    seeway_interface_msgs::srv::SendTask::Response pending_task_resp_;
-    bool task_resp_ready_ = false;
+    // -----------------------------------------------------------------------
+    // Sequence counter – shared across all outbound frames so that ACKs can
+    // be matched back to their requests regardless of concurrency.
+    // -----------------------------------------------------------------------
+    std::atomic<uint16_t> next_seq_{0};
+
+    // ACK parameters (declared in constructor via declare_parameter)
+    int32_t ack_timeout_ms_{300};
+    int32_t ack_retries_{0};
+
+    // -----------------------------------------------------------------------
+    // Pending ACK map  (MSG_ACK responses for SetGpio / SetPwm)
+    // Key = request seq; value = promise<ack_status_byte>.
+    // -----------------------------------------------------------------------
+    std::mutex pending_acks_mutex_;
+    std::unordered_map<uint16_t, std::promise<uint8_t>> pending_acks_;
+
+    // -----------------------------------------------------------------------
+    // Pending task-response map  (MSG_TASK_RESPONSE for SendTask)
+    // Key = request seq (echoed back in TaskResponsePayload::acked_seq).
+    // -----------------------------------------------------------------------
+    std::mutex pending_tasks_mutex_;
+    std::unordered_map<uint16_t,
+        std::promise<seeway_interface_msgs::srv::SendTask::Response>> pending_tasks_;
+
+    // -----------------------------------------------------------------------
+    // Helper: send a payload and wait up to ack_timeout_ms_ for an ACK.
+    // Returns true when the ACK status == 0 (success).
+    // -----------------------------------------------------------------------
+    template<typename T>
+    bool send_and_wait_ack(MsgId id, const T& payload,
+                           std::string& out_message);
 };
 
 }  // namespace seeway_interface_driver

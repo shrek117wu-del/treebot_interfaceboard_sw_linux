@@ -50,11 +50,12 @@ public:
 
     bool is_connected() const override { return sock_fd_ >= 0; }
 
-    bool send(MsgId id, const uint8_t* payload, uint16_t len) override {
+    bool send(MsgId id, uint16_t seq, const uint8_t* payload,
+              uint16_t len) override {
         std::lock_guard<std::mutex> lk(tx_mutex_);
         if (sock_fd_ < 0) return false;
         uint8_t frame[PROTO_MAX_FRAME];
-        size_t flen = FrameCodec::encode(id, seq_counter_++, payload, len,
+        size_t flen = FrameCodec::encode(id, seq, payload, len,
                                          frame, sizeof(frame));
         if (flen == 0) return false;
         return ::send(sock_fd_, frame, flen, MSG_NOSIGNAL) ==
@@ -78,7 +79,6 @@ private:
 
     FrameCodec                     codec_;
     std::array<FrameCallback, 256> handlers_{};
-    uint16_t                       seq_counter_{0};
 
     void connect_loop() {
         while (running_) {
