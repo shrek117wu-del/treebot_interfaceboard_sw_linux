@@ -1,0 +1,10 @@
+<package format="2">
+  <name>gemini330_gpu_bench</name>
+  <version>0.0.1</version>
+  <description>A ROS2 package for benchmarking GPU image processing</description>
+  <maintainer email="user@example.com">Your Name</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+</package>
