@@ -1,0 +1,98 @@
+name: Cross-Compile (ARM)
+
+on:
+  push:
+    branches: [main, master, "copilot/**"]
+    paths:
+      - "t113i_daemon/**"
+      - "cmake/**"
+      - "scripts/cross-compile/**"
+      - ".github/workflows/cross-compile.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "t113i_daemon/**"
+      - "cmake/**"
+
+jobs:
+  build-armhf:
+    name: Build ARM 32-bit (armhf)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ARM cross-compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            binutils-arm-linux-gnueabihf
+
+      - name: Configure (armhf)
+        run: |
+          mkdir build_armhf
+          cd build_armhf
+          cmake ../t113i_daemon \
+            -DCMAKE_TOOLCHAIN_FILE=../cmake/arm-linux-gnueabihf.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (armhf)
+        run: |
+          cd build_armhf
+          make -j$(nproc)
+
+      - name: Verify binary
+        run: |
+          bash scripts/cross-compile/verify_arm_binary.sh \
+            build_armhf/seeway_interface_daemon arm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seeway-daemon-armhf
+          path: build_armhf/seeway_interface_daemon
+          retention-days: 7
+
+  build-aarch64:
+    name: Build ARM 64-bit (AArch64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install AArch64 cross-compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+
+      - name: Configure (aarch64)
+        run: |
+          mkdir build_aarch64
+          cd build_aarch64
+          cmake ../t113i_daemon \
+            -DCMAKE_TOOLCHAIN_FILE=../cmake/aarch64-linux-gnu.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (aarch64)
+        run: |
+          cd build_aarch64
+          make -j$(nproc)
+
+      - name: Verify binary
+        run: |
+          bash scripts/cross-compile/verify_arm_binary.sh \
+            build_aarch64/seeway_interface_daemon aarch64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seeway-daemon-aarch64
+          path: build_aarch64/seeway_interface_daemon
+          retention-days: 7

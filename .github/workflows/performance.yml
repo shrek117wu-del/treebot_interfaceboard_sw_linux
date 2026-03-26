@@ -1,0 +1,79 @@
+name: Performance Tests
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "t113i_daemon/**"
+      - "tests/perf/**"
+      - ".github/workflows/performance.yml"
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  performance:
+    name: Performance Benchmarks
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake g++ python3
+
+      - name: Build performance tests
+        run: |
+          mkdir build_perf && cd build_perf
+          cmake ../tests -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc) perf_main_loop perf_task_execution perf_memory perf_logging
+
+      - name: Run main-loop benchmark
+        run: |
+          cd build_perf
+          ./perf_main_loop 2>&1 | tee perf_main_loop.txt
+
+      - name: Run logging benchmark
+        run: |
+          cd build_perf
+          ./perf_logging 2>&1 | tee perf_logging.txt
+
+      - name: Run memory benchmark
+        run: |
+          cd build_perf
+          ./perf_memory 2>&1 | tee perf_memory.txt
+
+      - name: Run task execution benchmark
+        run: |
+          cd build_perf
+          ./perf_task_execution 2>&1 | tee perf_task_execution.txt
+
+      - name: Generate performance report
+        run: |
+          cd build_perf
+          python3 ../tests/performance_report.py \
+            --build-dir . \
+            --output performance_report.json 2>&1 || true
+          cat performance_report.json 2>/dev/null || echo "No report generated"
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results
+          path: |
+            build_perf/*.csv
+            build_perf/*.json
+            build_perf/*.txt
+          retention-days: 30
+
+      - name: Print summary
+        run: |
+          echo "=== Performance Summary ==="
+          for f in build_perf/perf_*.txt; do
+            echo "--- $(basename $f) ---"
+            grep -E "(PASS|WARN|Throughput|Latency|CPU|Memory|reduction)" "$f" || true
+            echo ""
+          done

@@ -1,1 +1,7 @@
 t113i_daemon/build/
+build_tests/
+build_armhf/
+build_aarch64/
+build_perf/
+docs/api/
+*.log
