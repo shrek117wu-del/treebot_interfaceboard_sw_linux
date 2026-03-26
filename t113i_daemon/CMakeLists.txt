@@ -78,3 +78,12 @@ install(TARGETS ${PROJECT_NAME} DESTINATION bin)
 install(DIRECTORY config/ DESTINATION /etc/seeway_interface)
 install(DIRECTORY include/ DESTINATION include/seeway_interface)
 
+# ---------------------------------------------------------------------------
+# Testing (opt-in with -DENABLE_TESTING=ON)
+# ---------------------------------------------------------------------------
+option(ENABLE_TESTING "Build unit and integration tests" OFF)
+if(ENABLE_TESTING)
+    message(STATUS "Tests enabled – configuring tests/")
+    add_subdirectory(tests)
+endif()
+

@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/treebot_interfaceboard_sw_linux/treebot_interfaceboard_sw_linux/t113i_daemon/build_ci/tests/integration_test_protocol_compliance[1]_tests.cmake")
+  include("/home/runner/work/treebot_interfaceboard_sw_linux/treebot_interfaceboard_sw_linux/t113i_daemon/build_ci/tests/integration_test_protocol_compliance[1]_tests.cmake")
+else()
+  add_test(integration_test_protocol_compliance_NOT_BUILT integration_test_protocol_compliance_NOT_BUILT)
+endif()

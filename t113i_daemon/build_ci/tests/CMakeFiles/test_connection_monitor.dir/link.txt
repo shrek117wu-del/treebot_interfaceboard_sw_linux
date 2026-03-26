@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/test_connection_monitor.dir/link.d CMakeFiles/test_connection_monitor.dir/unit/test_connection_monitor.cpp.o -o test_connection_monitor  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a

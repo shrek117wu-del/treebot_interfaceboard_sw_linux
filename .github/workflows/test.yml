@@ -1,0 +1,150 @@
+name: T113i Daemon – Unit & Integration Tests
+
+on:
+  push:
+    branches: [ "**" ]
+    paths:
+      - 't113i_daemon/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - 't113i_daemon/**'
+
+jobs:
+  unit-tests:
+    name: Unit Tests (Ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build \
+            libgtest-dev libgmock-dev \
+            lcov
+
+      - name: Configure (with coverage)
+        working-directory: t113i_daemon
+        run: |
+          mkdir -p build_ci
+          cd build_ci
+          cmake .. \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_TESTING=ON \
+            -DCMAKE_CXX_FLAGS="--coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+
+      - name: Build
+        working-directory: t113i_daemon/build_ci
+        run: ninja -j$(nproc)
+
+      - name: Run unit tests
+        working-directory: t113i_daemon/build_ci
+        run: |
+          ctest --output-on-failure \
+                --parallel $(nproc) \
+                -R "^test_" \
+                --timeout 60
+        timeout-minutes: 10
+
+      - name: Generate coverage report
+        if: always()
+        working-directory: t113i_daemon/build_ci
+        run: |
+          lcov --capture \
+               --directory . \
+               --output-file coverage.info \
+               --ignore-errors mismatch || true
+          lcov --remove coverage.info \
+               '/usr/*' '*/googletest/*' '*/tests/*' \
+               --output-file coverage.info || true
+          lcov --summary coverage.info || true
+          genhtml coverage.info \
+                  --output-directory coverage_html \
+                  --quiet || true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: t113i_daemon/build_ci/coverage_html/
+          if-no-files-found: ignore
+
+  integration-tests:
+    name: Integration Tests (Ubuntu)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build \
+            libgtest-dev libgmock-dev
+
+      - name: Configure
+        working-directory: t113i_daemon
+        run: |
+          mkdir -p build_int
+          cd build_int
+          cmake .. \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_TESTING=ON
+
+      - name: Build
+        working-directory: t113i_daemon/build_int
+        run: ninja -j$(nproc)
+
+      - name: Run integration tests
+        working-directory: t113i_daemon/build_int
+        run: |
+          ctest --output-on-failure \
+                --parallel 1 \
+                -R "^integration_" \
+                --timeout 120 \
+                -L "integration"
+        timeout-minutes: 15
+
+  static-analysis:
+    name: Static Analysis (cppcheck)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck \
+            --std=c++17 \
+            --error-exitcode=1 \
+            --enable=warning,style,performance,portability \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            -I t113i_daemon/include \
+            t113i_daemon/src/ \
+            2>&1 | tee cppcheck_report.txt
+        continue-on-error: true   # treat as advisory for now
+
+      - name: Upload cppcheck report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck-report
+          path: cppcheck_report.txt
+          if-no-files-found: ignore

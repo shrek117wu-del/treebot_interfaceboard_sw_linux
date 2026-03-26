@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/test_utils.dir/link.d CMakeFiles/test_utils.dir/unit/test_utils.cpp.o -o test_utils  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a

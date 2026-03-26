@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/test_task_manager.dir/link.d CMakeFiles/test_task_manager.dir/unit/test_task_manager.cpp.o -o test_task_manager  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a

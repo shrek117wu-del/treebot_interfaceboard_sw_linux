@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/integration_test_tcp_loopback.dir/link.d CMakeFiles/integration_test_tcp_loopback.dir/integration/integration_test_tcp_loopback.cpp.o -o integration_test_tcp_loopback  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a

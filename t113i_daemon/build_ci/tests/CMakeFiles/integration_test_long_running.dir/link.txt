@@ -1,0 +1,1 @@
+/usr/bin/c++  -Wall -Wextra -O2 -g -Wl,--dependency-file=CMakeFiles/integration_test_long_running.dir/link.d CMakeFiles/integration_test_long_running.dir/integration/integration_test_long_running.cpp.o -o integration_test_long_running  libdaemon_testlib.a ../lib/libgtest_main.a ../lib/libgmock_main.a -lrt -lm ../lib/libgmock.a ../lib/libgtest.a
