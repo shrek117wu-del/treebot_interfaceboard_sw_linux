@@ -56,6 +56,10 @@ private:
     rclcpp::Service<seeway_interface_msgs::srv::PowerControl>::SharedPtr srv_power_;
     rclcpp::Service<seeway_interface_msgs::srv::SendTask>::SharedPtr srv_task_;
 
+    // Periodic timers (created in on_activate, cancelled in on_deactivate)
+    rclcpp::TimerBase::SharedPtr connection_monitor_timer_;
+    rclcpp::TimerBase::SharedPtr diagnostics_timer_;
+
     // Callbacks for inbound frames from T113i
     void handle_sensor_data(const uint8_t* pay, uint16_t len);
     void handle_gpio_status(const uint8_t* pay, uint16_t len);
@@ -73,19 +77,48 @@ private:
     void on_send_task(const std::shared_ptr<seeway_interface_msgs::srv::SendTask::Request> req,
                       std::shared_ptr<seeway_interface_msgs::srv::SendTask::Response> res);
 
+    // Connection monitoring and diagnostics callbacks
+    void monitor_connection();
+    void publish_diagnostics();
+
     // -----------------------------------------------------------------------
-    // Sequence counter – shared across all outbound frames so that ACKs can
-    // be matched back to their requests regardless of concurrency.
+    // Sequence counter – upgraded to uint32_t to avoid rapid overflow.
+    // The wire protocol uses uint16_t seq; the lower 16 bits of this counter
+    // are cast to uint16_t when calling send_payload / for map keys.
     // -----------------------------------------------------------------------
-    std::atomic<uint16_t> next_seq_{0};
+    std::atomic<uint32_t> next_seq_{0};
 
     // ACK parameters (declared in constructor via declare_parameter)
     int32_t ack_timeout_ms_{300};
     int32_t ack_retries_{0};
 
+    // Per-service timeout overrides (ms)
+    int32_t power_timeout_ms_{1000};
+    int32_t send_task_timeout_ms_{5000};
+
     // -----------------------------------------------------------------------
-    // Pending ACK map  (MSG_ACK responses for SetGpio / SetPwm)
-    // Key = request seq; value = promise<ack_status_byte>.
+    // Connection monitoring state
+    // -----------------------------------------------------------------------
+    int failed_checks_{0};
+    static constexpr int MAX_FAILED_CHECKS = 3;
+
+    // Set to true while on_deactivate is running so timers can exit early.
+    std::atomic<bool> deactivating_{false};
+
+    // -----------------------------------------------------------------------
+    // Diagnostics counters – updated from various code paths, read periodically.
+    // -----------------------------------------------------------------------
+    struct DiagnosticsData {
+        std::atomic<uint64_t> frames_sent{0};
+        std::atomic<uint64_t> frames_received{0};
+        std::atomic<uint64_t> ack_timeouts{0};
+        std::atomic<uint64_t> send_failures{0};
+        std::atomic<uint64_t> parse_errors{0};
+    } diagnostics_;
+
+    // -----------------------------------------------------------------------
+    // Pending ACK map  (MSG_ACK responses for SetGpio / SetPwm / PowerControl)
+    // Key = request seq (uint16_t, matches wire protocol); value = promise<ack_status_byte>.
     // -----------------------------------------------------------------------
     std::mutex pending_acks_mutex_;
     std::unordered_map<uint16_t, std::promise<uint8_t>> pending_acks_;
@@ -99,12 +132,14 @@ private:
         std::promise<seeway_interface_msgs::srv::SendTask::Response>> pending_tasks_;
 
     // -----------------------------------------------------------------------
-    // Helper: send a payload and wait up to ack_timeout_ms_ for an ACK.
+    // Helper: send a payload and wait for an ACK.
+    // timeout_ms <= 0 means use ack_timeout_ms_.
     // Returns true when the ACK status == 0 (success).
     // -----------------------------------------------------------------------
     template<typename T>
     bool send_and_wait_ack(MsgId id, const T& payload,
-                           std::string& out_message);
+                           std::string& out_message,
+                           int timeout_ms = -1);
 };
 
 }  // namespace seeway_interface_driver

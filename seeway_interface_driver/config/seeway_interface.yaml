@@ -11,9 +11,23 @@ seeway_interface_driver:
       port: 9000
       host: 192.168.1.50    # T113i address (used in client mode)
       bind_address: 0.0.0.0 # Listen address (used in server mode)
-      reconnect_ms: 1000    # Reconnect interval for client mode (ms)
+      reconnect_ms: 1000    # Reconnect interval for client mode (ms); range: 100–30000
 
     # Serial / USB-CDC transport parameters
     serial:
       device: /dev/ttyACM0
-      baudrate: 115200
+      baudrate: 115200      # Valid: 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600
+
+    # ACK / retry configuration
+    # ack_timeout_ms: time to wait for a MSG_ACK before retrying (range: 100–10000)
+    # ack_retries:    number of additional send attempts on timeout (range: 0–5)
+    ack_timeout_ms: 300
+    ack_retries: 1
+
+    # Per-service command timeouts (ms)
+    # power_ms:     timeout for PowerControl ACK (range: 100–30000)
+    # send_task_ms: timeout for SendTask response (range: 100–60000)
+    timeout:
+      power_ms: 1000
+      send_task_ms: 5000
+
