@@ -1,0 +1,79 @@
+# ros2_benchmark/gemini330_gpu_bench/config/orbbec_dual_camera.yaml
+#
+# Orbbec 双相机配置文件
+# 适用：Wrist Camera (Gemini 330) + Head Camera (Gemini 305)
+# ROS2 Humble / OrbbecSDK_ROS2 >= 1.8
+#
+# 重要 USB 注意事项：
+#   在启动前执行以下命令以避免大数据流 ENOMEM 错误：
+#     echo 128 | sudo tee /sys/module/usbcore/parameters/usbfs_memory_mb
+# usbfs_memory_mb: 128  # 提示：需在系统级别设置
+
+# ── Wrist Camera（Orbbec Gemini 330）────────────────────────────────────────
+wrist_camera:
+  ros__parameters:
+    product_name: "gemini330"
+
+    # 彩色流：1280×720 @ 30fps
+    enable_color:   true
+    color_width:    1280
+    color_height:   720
+    color_fps:      30
+    color_format:   "RGB8"
+
+    # 深度流：1280×720 @ 30fps
+    enable_depth:   true
+    depth_width:    1280
+    depth_height:   720
+    depth_fps:      30
+
+    # 硬件深度对齐到彩色坐标系（降低 CPU 处理负载）
+    enable_hardware_d2c: true
+
+    # 使用系统时间戳，便于跨节点延迟测量
+    timestamp_domain: "system"
+
+    # 关闭点云（节省 CPU 和带宽）
+    enable_point_cloud: false
+    enable_colored_point_cloud: false
+
+    # UVC 后端（V4L2 在 Linux 上更稳定）
+    uvc_backend: "V4L2"
+
+    # IMU（本场景不需要）
+    enable_accel: false
+    enable_gyro:  false
+
+# ── Head Camera（Orbbec Gemini 305）─────────────────────────────────────────
+head_camera:
+  ros__parameters:
+    product_name: "gemini305"
+
+    # 彩色流：640×480 @ 15fps（降帧率节省 USB 带宽）
+    enable_color:   true
+    color_width:    640
+    color_height:   480
+    color_fps:      15
+    color_format:   "RGB8"
+
+    # 深度流：640×480 @ 15fps
+    enable_depth:   true
+    depth_width:    640
+    depth_height:   480
+    depth_fps:      15
+
+    # 硬件深度对齐
+    enable_hardware_d2c: true
+
+    # 系统时间戳域
+    timestamp_domain: "system"
+
+    # 关闭点云
+    enable_point_cloud: false
+    enable_colored_point_cloud: false
+
+    # UVC 后端
+    uvc_backend: "V4L2"
+
+    enable_accel: false
+    enable_gyro:  false
