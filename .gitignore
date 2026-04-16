@@ -5,3 +5,6 @@ build_aarch64/
 build_perf/
 docs/api/
 *.log
+__pycache__/
+*.pyc
+*.pyo
