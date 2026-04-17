@@ -12,6 +12,8 @@ ROS2 节点：订阅 Wrist Camera (Gemini 330) 和 Head Camera (Gemini 305)
   - Head Camera:  Orbbec Gemini 305  (USB 3.x → x86)
   - 主控:         x86 + RTX 4090 / x86 + Thor
   - ROS2:         Humble (Ubuntu 22.04)
+
+依赖：Python3 stdlib + rclpy + sensor_msgs（无第三方大包要求）
 """
 
 import csv
@@ -20,17 +22,111 @@ import time
 from collections import deque
 from typing import Dict, List
 
-import numpy as np
-import psutil
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import Image
 
+
+# ─── 分位数工具（替代 numpy.percentile，纯 stdlib 实现）─────────────────────
+
+def _percentile(data: list, pct: float) -> float:
+    """线性插值分位数，行为与 numpy.percentile 一致。
+
+    参数:
+        data: 数值列表（内部自动排序，原列表不受影响）
+        pct:  百分比，如 95.0 表示 p95
+
+    返回:
+        分位数值；data 为空时返回 0.0
+    """
+    if not data:
+        return 0.0
+    s = sorted(data)
+    n = len(s)
+    idx = (pct / 100.0) * (n - 1)
+    lo  = int(idx)
+    hi  = lo + 1
+    if hi >= n:
+        return float(s[-1])
+    frac = idx - lo
+    return float(s[lo] * (1.0 - frac) + s[hi] * frac)
+
+
+def _mean(data: list) -> float:
+    """安全均值；data 为空时返回 0.0。"""
+    return sum(data) / len(data) if data else 0.0
+
+
+# ─── /proc 系统指标（替代 psutil，纯 stdlib 实现）────────────────────────────
+
+class _ProcSelfMetrics:
+    """通过 /proc/self/stat 和 /proc/meminfo 获取进程 CPU 和内存。"""
+
+    def __init__(self) -> None:
+        # 记录上一次读取的 CPU jiffies，用于计算差分利用率
+        self._prev_utime = 0
+        self._prev_stime = 0
+        self._prev_wall  = time.monotonic()
+        # 首次读取初始化基线
+        self._prev_utime, self._prev_stime = self._read_cpu_jiffies()
+
+    @staticmethod
+    def _read_cpu_jiffies():
+        """从 /proc/self/stat 读取用户态和内核态 jiffies。
+
+        /proc/self/stat 各字段以空格分隔（0-indexed）：
+          字段[13] = utime（用户态 CPU jiffies）
+          字段[14] = stime（内核态 CPU jiffies）
+        这对应 procfs 手册中第 14、15 个字段（1-indexed）。
+        """
+        try:
+            with open("/proc/self/stat") as f:
+                fields = f.read().split()
+            return int(fields[13]), int(fields[14])
+        except (OSError, IndexError, ValueError):
+            return 0, 0
+
+    def cpu_percent(self) -> float:
+        """返回本进程自上次调用以来的 CPU 使用百分比（所有核心累计）。"""
+        import warnings
+        hz = 100
+        try:
+            hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        except (AttributeError, KeyError, ValueError):
+            warnings.warn(
+                "SC_CLK_TCK not available; falling back to hz=100 for CPU% calculation",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        now_wall   = time.monotonic()
+        now_u, now_s = self._read_cpu_jiffies()
+        delta_wall = now_wall - self._prev_wall
+        if delta_wall <= 0:
+            return 0.0
+        delta_cpu  = (now_u + now_s - self._prev_utime - self._prev_stime) / hz
+        pct = (delta_cpu / delta_wall) * 100.0
+        self._prev_utime = now_u
+        self._prev_stime = now_s
+        self._prev_wall  = now_wall
+        return pct
+
+    @staticmethod
+    def mem_rss_mb() -> float:
+        """从 /proc/self/status 读取进程 RSS（MB）。"""
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) / 1024.0
+        except (OSError, ValueError):
+            pass
+        return 0.0
+
 # ─── 常量 ────────────────────────────────────────────────────────────────────
-WINDOW_SIZE = 300          # 滑动窗口帧数
-REPORT_INTERVAL_SEC = 5.0  # 报告周期（秒）
-CSV_PATH = "/tmp/camera_benchmark.csv"
+WINDOW_SIZE         = 300   # 滑动窗口帧数
+REPORT_INTERVAL_SEC = 5.0   # 报告周期（秒）
+CSV_PATH            = "/tmp/camera_benchmark.csv"
 
 # 订阅话题：(话题路径, 流名称)
 TOPICS: List[tuple] = [
@@ -84,19 +180,19 @@ class StreamStats:
     def mean_latency_ms(self) -> float:
         if not self.latencies_ms:
             return 0.0
-        return float(np.mean(list(self.latencies_ms)))
+        return _mean(list(self.latencies_ms))
 
     @property
     def p95_latency_ms(self) -> float:
         if not self.latencies_ms:
             return 0.0
-        return float(np.percentile(list(self.latencies_ms), 95))
+        return _percentile(list(self.latencies_ms), 95)
 
     @property
     def p99_latency_ms(self) -> float:
         if not self.latencies_ms:
             return 0.0
-        return float(np.percentile(list(self.latencies_ms), 99))
+        return _percentile(list(self.latencies_ms), 99)
 
     @property
     def drop_rate(self) -> float:
@@ -143,7 +239,7 @@ class CameraBenchmarkNode(Node):
         self._init_csv()
 
         # psutil 进程对象（用于 CPU / 内存）
-        self._process = psutil.Process(os.getpid())
+        self._process = _ProcSelfMetrics()
 
         # 每 5 秒打印报告
         self.create_timer(REPORT_INTERVAL_SEC, self._report_callback)
@@ -168,9 +264,9 @@ class CameraBenchmarkNode(Node):
         self._stats[stream].record(recv_ns, stamp_ns)
 
     def _get_system_metrics(self):
-        """读取当前进程的 CPU 和 RSS 内存。"""
-        cpu_pct = self._process.cpu_percent(interval=None)
-        mem_rss_mb = self._process.memory_info().rss / (1024 * 1024)
+        """读取当前进程的 CPU 和 RSS 内存（纯 /proc 读取，无第三方依赖）。"""
+        cpu_pct    = self._process.cpu_percent()
+        mem_rss_mb = self._process.mem_rss_mb()
         return cpu_pct, mem_rss_mb
 
     def _report_callback(self) -> None:
