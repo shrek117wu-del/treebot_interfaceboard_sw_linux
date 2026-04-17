@@ -4,14 +4,33 @@
 fps_latency_bw_monitor.py  —  双相机四路图像流并行 FPS / 延迟 / USB 带宽诊断
 
 功能：
-  1. 并行订阅 4 路话题，统计实际帧率（FPS，300帧滑动窗口）
+  1. 真并行订阅 4 路话题（MultiThreadedExecutor + 独立 MutuallyExclusiveCallbackGroup），
+     各流回调互不阻塞，统计实际帧率（FPS，300帧滑动窗口）
   2. 端到端延迟（系统 wall-clock 时间 vs 消息 header.stamp）：
        mean / p95 / max
   3. USB 带宽估算：按消息像素尺寸（step × height）累计每秒字节数
   4. 采样时长通过 --duration 指定（默认 60 秒）
-  5. 结果落盘到
+  5. 结果落盘到（后台写入线程，不阻塞回调）：
        /tmp/fps_latency_bw_diag_YYYYMMDD_HHMMSS/per_interval_stats.csv
        /tmp/fps_latency_bw_diag_YYYYMMDD_HHMMSS/final_summary.csv
+
+并发模型：
+  - 每路话题使用独立的 MutuallyExclusiveCallbackGroup，搭配
+    MultiThreadedExecutor（len(TOPICS)+2 线程），4 路图像回调及
+    定时报告回调真正并发执行，互不阻塞。
+  - StreamStats 内部使用 threading.Lock 保证计数器（total_frames /
+    drop_frames）的原子性；deque.append 受 CPython GIL 保护。
+  - CSV 写入通过 queue.Queue + 专用后台线程异步完成，磁盘 I/O 不
+    阻塞任何回调线程。
+
+与旧版（单线程 spin）的主要差异：
+  旧版问题                        新版改进
+  ──────────────────────────────  ──────────────────────────────────────────
+  rclpy.spin → SingleThreaded     MultiThreadedExecutor（N+2 线程）
+  4 路回调串行执行                每路话题独立 CallbackGroup，真正并发
+  total_frames += 1 无锁          threading.Lock 保护 read-modify-write
+  CSV 写入阻塞 spin 线程          queue.Queue + 后台线程，零阻塞
+  未明确 callback_group           显式独立 CallbackGroup，行为可预期
 
 依赖：
   Python3 stdlib  + rclpy + sensor_msgs（均随 ROS2 Humble 安装，无需 pip 安装额外包）
@@ -25,6 +44,7 @@ import argparse
 import csv
 import json
 import os
+import queue
 import signal
 import sys
 import time
@@ -34,6 +54,8 @@ from typing import Dict, List, Tuple
 
 import rclpy
 from rclpy.node import Node
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import Image
 
@@ -113,10 +135,19 @@ def _read_mem_mb() -> Tuple[float, float]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class StreamStats:
-    """单路图像流的实时统计容器（线程安全：GIL 保护 deque 追加操作）。"""
+    """单路图像流的实时统计容器。
+
+    线程安全说明：
+      - deque.append 在 CPython 中受 GIL 保护，单次 append 是原子操作，
+        多线程回调同时写入同一 deque 是安全的。
+      - total_frames / drop_frames 是 read-modify-write（+=），在
+        MultiThreadedExecutor 多线程环境下存在竞态；使用 _lock 保护。
+    """
 
     def __init__(self, name: str) -> None:
         self.name = name
+        # ── 内部锁：保护 total_frames / drop_frames 的原子递增 ───────────────
+        self._lock = threading.Lock()
         # ── 滑动窗口 ──────────────────────────────────────────────────────────
         # 接收时刻（wall-clock nanoseconds，由 time.time_ns() 获取）
         self._recv_ns:  deque = deque(maxlen=WINDOW)
@@ -124,27 +155,31 @@ class StreamStats:
         self._lat_ms:   deque = deque(maxlen=WINDOW)
         # 每帧原始图像字节数（step × height）
         self._bw_bytes: deque = deque(maxlen=WINDOW)
-        # ── 累计计数器 ────────────────────────────────────────────────────────
+        # ── 累计计数器（由 _lock 保护）────────────────────────────────────────
         self.total_frames = 0        # 自启动以来的总帧数
         self.drop_frames  = 0        # 延迟超过阈值的帧数（视为严重滞后）
 
     # ─── 数据写入 ─────────────────────────────────────────────────────────────
 
     def record(self, recv_ns: int, stamp_ns: int, frame_bytes: int) -> None:
-        """记录一帧到达事件。
+        """记录一帧到达事件（线程安全）。
 
         参数:
             recv_ns:     本机接收该消息的 wall-clock 时间（nanoseconds）
             stamp_ns:    消息 header.stamp 转换后的纳秒时间戳
             frame_bytes: 原始图像字节数（msg.step × msg.height）
         """
+        # deque.append 受 GIL 保护，各路独立 StreamStats 实例无共享 deque，
+        # 本调用在多线程环境下安全。
         self._recv_ns.append(recv_ns)
         lat_ms = (recv_ns - stamp_ns) / 1_000_000.0     # ns → ms
         self._lat_ms.append(lat_ms)
         self._bw_bytes.append(frame_bytes)
-        self.total_frames += 1
-        if lat_ms > DROP_FRAME_THRESHOLD_MS:             # 超过阈值视为严重延迟
-            self.drop_frames += 1
+        # total_frames / drop_frames 需要 read-modify-write，必须加锁
+        with self._lock:
+            self.total_frames += 1
+            if lat_ms > DROP_FRAME_THRESHOLD_MS:         # 超过阈值视为严重延迟
+                self.drop_frames += 1
 
     # ─── 计算属性（只读，每次调用均基于当前窗口内容）────────────────────────
 
@@ -195,7 +230,16 @@ class StreamStats:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class FpsLatencyBwNode(Node):
-    """并行订阅双相机 4 路话题，定期打印诊断报告并写入 CSV。"""
+    """多线程并行订阅双相机 4 路话题，定期打印诊断报告并写入 CSV。
+
+    并发模型：
+      - 每路话题使用独立的 MutuallyExclusiveCallbackGroup，配合
+        MultiThreadedExecutor（在 main() 中创建）实现 4 路图像回调
+        真正并发执行，互不阻塞。
+      - 定时报告回调使用独立 CallbackGroup，不与图像回调相互阻塞。
+      - CSV 写入通过 _csv_queue + 后台线程异步完成，磁盘 I/O 不
+        阻塞任何回调线程。
+    """
 
     def __init__(self, output_dir: str) -> None:
         super().__init__("fps_latency_bw_monitor")
@@ -215,14 +259,18 @@ class FpsLatencyBwNode(Node):
         }
 
         # 并行订阅 4 路图像话题
-        # lambda 捕获 n=name 以避免 Python 闭包晚绑定问题
+        # 每路话题使用独立的 MutuallyExclusiveCallbackGroup，
+        # 使 MultiThreadedExecutor 可以同时调度各路回调，互不阻塞。
+        # lambda 捕获 n=name 以避免 Python 闭包晚绑定问题。
         self._subs = []
         for topic, name in TOPICS:
+            cbg = MutuallyExclusiveCallbackGroup()
             sub = self.create_subscription(
                 Image,
                 topic,
                 lambda msg, n=name: self._image_cb(msg, n),
                 qos,
+                callback_group=cbg,
             )
             self._subs.append(sub)
             self.get_logger().info(f"  订阅: {topic}  →  {name}")
@@ -241,9 +289,41 @@ class FpsLatencyBwNode(Node):
         with open(self._interval_csv_path, "w", newline="") as fh:
             csv.DictWriter(fh, fieldnames=self._csv_fields).writeheader()
 
-        # 定时报告（每 REPORT_INTERVAL 秒）
-        self.create_timer(REPORT_INTERVAL, self._report_cb)
-        self.get_logger().info(f"FpsLatencyBwNode 已启动  →  {output_dir}")
+        # 后台 CSV 写入队列 + 线程
+        # 将磁盘 I/O 从回调线程中剥离，避免阻塞图像回调或定时报告。
+        # 约定：put(None) 为关闭信号（哨兵值），写线程收到后退出。
+        self._csv_queue: queue.Queue = queue.Queue()
+        self._csv_thread = threading.Thread(
+            target=self._csv_writer_loop,
+            daemon=True,
+            name="csv_writer",
+        )
+        self._csv_thread.start()
+
+        # 定时报告使用独立 CallbackGroup，与图像回调互不阻塞
+        timer_cbg = MutuallyExclusiveCallbackGroup()
+        self.create_timer(REPORT_INTERVAL, self._report_cb, callback_group=timer_cbg)
+        self.get_logger().info(
+            f"FpsLatencyBwNode 已启动（MultiThreadedExecutor，{len(TOPICS)+2} 线程）"
+            f"  →  {output_dir}"
+        )
+
+    # ─── 后台 CSV 写入循环 ────────────────────────────────────────────────────
+
+    def _csv_writer_loop(self) -> None:
+        """后台 CSV 写入循环：从队列取行批量追加写入文件。
+
+        通过将磁盘 I/O 从回调线程剥离，避免文件写入阻塞图像回调或定时报告。
+        收到 None（哨兵值）时退出循环，实现优雅关闭。
+        """
+        while True:
+            rows = self._csv_queue.get()
+            if rows is None:                             # 哨兵值：退出循环
+                break
+            with open(self._interval_csv_path, "a", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=self._csv_fields)
+                for row in rows:
+                    writer.writerow(row)
 
     # ─── 图像回调 ─────────────────────────────────────────────────────────────
 
@@ -298,11 +378,8 @@ class FpsLatencyBwNode(Node):
                 f" {s.drop_rate:>7.2%}"
             )
 
-        # 追加写入 per_interval_stats.csv
-        with open(self._interval_csv_path, "a", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=self._csv_fields)
-            for row in rows:
-                writer.writerow(row)
+        # 通过队列异步写入 CSV，不阻塞回调线程
+        self._csv_queue.put(rows)
 
         self.get_logger().info(sep)
 
@@ -377,6 +454,12 @@ class FpsLatencyBwNode(Node):
         print(f"  {'全流合计带宽':12s} {total_bw:>9.3f} MB/s")
         print(sep)
 
+        # 关闭后台 CSV 写入线程（发送哨兵值，等待队列排空后退出）
+        self._csv_queue.put(None)
+        self._csv_thread.join(timeout=5.0)
+        if self._csv_thread.is_alive():
+            print("[monitor] 警告: CSV 写入线程未在超时内退出，可能有未写入的数据", flush=True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 入口
@@ -430,11 +513,19 @@ def main(argv=None):
     rclpy.init(args=sys.argv)
     node = FpsLatencyBwNode(output_dir)
 
-    # 用独立线程执行 spin，主线程负责计时退出
+    # 使用 MultiThreadedExecutor 实现真并行回调调度。
+    # 线程数 = 话题数（每路独立 CallbackGroup）+ 定时报告 + 1 余量。
+    # 与旧版 rclpy.spin()（SingleThreadedExecutor）的区别：
+    #   旧版：4 路回调串行排队，任一慢回调会阻塞其他路。
+    #   新版：各路回调由独立线程并发执行，互不干扰。
+    num_threads = len(TOPICS) + 1 + 1  # 话题数 + 定时报告回调 + 1 余量
+    executor = MultiThreadedExecutor(num_threads=num_threads)
+    executor.add_node(node)
+
     spin_thread = threading.Thread(
-        target=rclpy.spin,
-        args=(node,),
+        target=executor.spin,
         daemon=True,      # 随主线程退出
+        name="ros2_executor",
     )
     spin_thread.start()
 
@@ -445,11 +536,12 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\n[monitor] 用户中断")
 
-    # 输出最终汇总
+    # 输出最终汇总（内部会关闭后台 CSV 写入线程）
     print("\n[monitor] 采样结束，生成汇总报告 …")
     node.write_final_summary()
 
     # 清理资源
+    executor.shutdown()
     node.destroy_node()
     rclpy.shutdown()
     spin_thread.join(timeout=2.0)
