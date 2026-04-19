@@ -70,6 +70,12 @@ if [ -f "${USBFS}" ]; then
         fi
     else
         _info "  usbfs_memory_mb 当前值: ${CURRENT_VAL}（已满足要求）"
+        # usbfs_memory_mb 已满足，若 FPS 依然不足，运行深度诊断脚本
+        DIAG_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orbbec_fps_diagnose.sh"
+        if [ -f "${DIAG_SCRIPT}" ]; then
+            _info "  usbfs_memory_mb 已达标，如 FPS 仍不足，可运行深度诊断："
+            _info "    bash ${DIAG_SCRIPT} --output-dir ${DIAG_DIR}/deep_diag"
+        fi
     fi
 else
     _warn "  ${USBFS} 不存在，跳过设置"
@@ -166,3 +172,40 @@ _info "  final_summary.json      — JSON 格式汇总"
 _info "  system_metrics.csv      — 系统资源快照"
 _info "  monitor.log             — 完整控制台日志"
 _sep
+
+# ─── 测量后建议：如果 FPS 偏低，提示运行深度诊断 ──────────────────────────────
+SUMMARY_JSON="${DIAG_DIR}/final_summary.json"
+if [ -f "${SUMMARY_JSON}" ]; then
+    # 提取任意流的 fps_last 值，若低于阈值则触发提示
+    LOW_FPS=$(python3 - <<'PYCHECK'
+import json, os, sys
+p = os.environ.get("SUMMARY_JSON", "")
+if not p or not os.path.isfile(p):
+    print("ok")
+    sys.exit(0)
+try:
+    with open(p) as f:
+        d = json.load(f)
+    fps_vals = [float(v.get("fps_last", 30)) for k, v in d.items()
+                if not k.startswith("_") and isinstance(v, dict)]
+    avg = sum(fps_vals) / len(fps_vals) if fps_vals else 30
+    print("low" if avg < 25 else "ok")
+except (json.JSONDecodeError, ValueError, KeyError) as e:
+    print(f"[PYCHECK] JSON parse error: {e}", file=sys.stderr)
+    print("ok")
+PYCHECK
+)
+    export SUMMARY_JSON
+    if [ "${LOW_FPS}" = "low" ]; then
+        _sep
+        _warn "⚠️  检测到 FPS 低于 25！已确认 usbfs_memory_mb ≥ 128，"
+        _warn "   请运行深度诊断脚本以定位根本原因："
+        _warn ""
+        DIAG_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orbbec_fps_diagnose.sh"
+        _warn "   bash ${DIAG_SCRIPT} --output-dir ${DIAG_DIR}/deep_diag"
+        _warn ""
+        _warn "   或查阅诊断手册："
+        _warn "   docs/orbbec_fps_troubleshooting.md"
+        _sep
+    fi
+fi
